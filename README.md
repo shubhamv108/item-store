@@ -1,4 +1,4 @@
-### StartRedis
+#### Start Redis
     Port: 6379 
 
     Set redis configuration in file at path src/main/resources/application.conf
