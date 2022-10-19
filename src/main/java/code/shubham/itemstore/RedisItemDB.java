@@ -4,20 +4,12 @@ import code.shubham.utils.json.JsonUtils;
 import code.shubham.utils.redis.store.RedisStore;
 
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class RedisItemDB implements ItemDB {
-
-    private static final Map<String, Class<? extends Item>> ITEM_CLASSES = new HashMap<>();
-
-    static {
-        ITEM_CLASSES.put(Animal.class.getSimpleName(), Animal.class);
-        ITEM_CLASSES.put(Person.class.getSimpleName(), Person.class);
-    }
 
     private final RedisStore redisStore;
 
@@ -30,6 +22,7 @@ public class RedisItemDB implements ItemDB {
         item.setID(UUID.randomUUID().toString());
         var jsonMap = JsonUtils.convert(item, Map.class);
         jsonMap.put(Constants.KIND_KEY, item.getKind());
+        jsonMap.put(Constants.JAVA_CLASS_NAME_KEY, item.getClass().getName());
         this.redisStore.executeTransaction(Arrays.asList(
                 transaction -> transaction.set(item.getID(), JsonUtils.convert(jsonMap)),
                 transaction -> transaction.set(Constants.ITEM_NAME_KEY_PREFIX + item.getName(), item.getID()),
@@ -43,14 +36,19 @@ public class RedisItemDB implements ItemDB {
         String json = this.redisStore.get(id);
         if (json == null)
             return null;
+
         var jsonMap = JsonUtils.convert(json, Map.class);
-        String kind = (String) jsonMap.get(Constants.KIND_KEY);
-        return JsonUtils.convert(json, ITEM_CLASSES.get(kind));
+        try {
+            Class<?> clazz = Class.forName(String.valueOf(jsonMap.get(Constants.JAVA_CLASS_NAME_KEY)));
+            return JsonUtils.convert(json, (Class<? extends Item>) clazz);
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     public Item getObjectByName(String name) {
-        String id = this.redisStore.get("Item:name:" + name);
+        String id = this.redisStore.get(Constants.ITEM_NAME_KEY_PREFIX + name);
         if (id == null)
             return null;
         return this.getObjectByID(id);
@@ -58,7 +56,7 @@ public class RedisItemDB implements ItemDB {
 
     @Override
     public List<Item> listObjects(String kind) {
-        return this.redisStore.getList("Items:kind:" + kind).
+        return this.redisStore.getList(Constants.ITEMS_KIND_KEY_PREFIX + kind).
                 stream().
                 map(String::valueOf).
                 map(this::getObjectByID).
